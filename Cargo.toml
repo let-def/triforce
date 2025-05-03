@@ -18,6 +18,7 @@ lto = "thin"
 lv2 = "0.6.0"
 nalgebra = "0.33.2"
 rustfft = "6.2.0"
+cpu-time = "1.0.0"
 
 [lib]
 crate-type = ["cdylib"]

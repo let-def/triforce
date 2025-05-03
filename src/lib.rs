@@ -9,7 +9,7 @@
  * Copyright (C) 2024 James Calligeros <jcalligeros99@gmail.com>
  */
 
-use std::f32::consts::PI;
+use std::{f32::consts::PI, time::Duration};
 use lv2::prelude::*;
 use nalgebra::{linalg::SVD, ComplexField, DMatrix, DVector, Vector3};
 use rustfft::{num_complex::Complex, num_traits::Zero, FftPlanner};
@@ -173,12 +173,12 @@ struct Triforce {
     steering_vector: DVector<Complex<f32>>,
     covar: DMatrix<Complex<f32>>,
     array_geom: [ElemDistance; 3],
+    time_spent: Duration,
 }
 
 trait Beamformer: Plugin {
     fn update_params(&mut self, ports: &mut Ports);
 }
-
 impl Plugin for Triforce {
     type Ports = Ports;
 
@@ -205,10 +205,12 @@ impl Plugin for Triforce {
                 [ElemDistance { x: 0f32, y: 0f32 }; 3],
             ),
             covar: DMatrix::zeros(3, 3),
+            time_spent: Duration::ZERO,
         })
     }
 
     fn run(&mut self, ports: &mut Ports, _features: &mut (), _: u32) {
+        let now = cpu_time::ThreadTime::now();
         Beamformer::update_params(self, ports);
 
         // Steering vector is relative to Left/Top mic
@@ -265,7 +267,17 @@ impl Plugin for Triforce {
                 *output = 0f32;
             }
         }
+
+        self.time_spent += now.elapsed();
     }
+}
+
+impl Drop for Triforce {
+
+    fn drop(&mut self) {
+        eprintln!("triforce: cpu time spent: {}ms", self.time_spent.as_millis())
+    }
+
 }
 
 impl Beamformer for Triforce {

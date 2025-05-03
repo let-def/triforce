@@ -272,14 +272,31 @@ impl Plugin for Triforce {
     }
 
     fn run(&mut self, ports: &mut Ports, _features: &mut (), samples: u32) {
-        let now = cpu_time::ThreadTime::now();
         Beamformer::update_params(self, ports);
 
         if samples < 1024 {
             return;
         }
 
-        self.process_slice(&ports.in_1, &ports.in_2, &ports.in_3, &mut ports.out, *ports.t_win);
+        let now = cpu_time::ThreadTime::now();
+
+        let mut i : usize = 0;
+        while i + 2048 <= samples as usize {
+            let j : usize = i + 1024;
+            self.process_slice(&ports.in_1[i..j],
+                               &ports.in_2[i..j],
+                               &ports.in_3[i..j],
+                               &mut ports.out[i..j],
+                               *ports.t_win);
+            i += 1024;
+        }
+
+        let j = samples as usize;
+        self.process_slice(&ports.in_1[i..j],
+                           &ports.in_2[i..j],
+                           &ports.in_3[i..j],
+                           &mut ports.out[i..j],
+                           *ports.t_win);
 
         self.time_spent += now.elapsed();
     }

@@ -179,6 +179,68 @@ struct Triforce {
 trait Beamformer: Plugin {
     fn update_params(&mut self, ports: &mut Ports);
 }
+
+impl Triforce {
+
+    fn process_slice(&mut self, mic1: &[f32], mic2: &[f32], mic3: &[f32], output: &mut [f32], t_win: f32) {
+
+        // Steering vector is relative to Left/Top mic
+        let inputs = vec![
+            analytic_signal(mic1),
+            analytic_signal(mic2),
+            analytic_signal(mic3),
+        ];
+
+        let num_samples = inputs[0].len();
+
+        // Update the covariance matrix. We use an overlapping window to smooth over
+        // the transitions.
+        if self.samples_since_last_update as f32 >= (t_win / 1000.0) * self.sample_rate {
+            self.samples_since_last_update = 0;
+            self.covar_window[0].extend_from_slice(&inputs[0][0..767]);
+            self.covar_window[1].extend_from_slice(&inputs[1][0..767]);
+            self.covar_window[2].extend_from_slice(&inputs[2][0..767]);
+            self.covar = covariance(&self.covar_window);
+            self.covar_window[0] = inputs[0][768..1023].to_vec();
+            self.covar_window[1] = inputs[1][768..1023].to_vec();
+            self.covar_window[2] = inputs[2][768..1023].to_vec();
+        }
+        else {
+            self.samples_since_last_update += num_samples as u32;
+        }
+
+        // Get the MVDR weights
+        let w = mvdr_weights(&self.covar, &self.steering_vector);
+
+        // Now we can finally do the beamforming
+        let mut out = vec![Complex::zero(); num_samples];
+
+        for t in 0..num_samples {
+            let discrete: DVector<Complex<f32>> = DVector::from_iterator(
+                3, // number of mics
+                inputs.iter().map(|s| s[t]),
+            );
+
+            // Conjugate-linear dot product
+            out[t] = w.dotc(&discrete);
+        }
+
+        // Now we need to revert the Hilbert transform and output the signal
+        let re: Vec<f32> = out.iter().map(|z| z.re).collect();
+
+        // Do all of our NFP and clamping here
+        for (real, output) in Iterator::zip(re.iter(), output.iter_mut()) {
+            if real.is_finite() && !real.is_nan() {
+                *output = real.clamp(-10f32, 10f32);
+            } else {
+                *output = 0f32;
+            }
+        }
+
+    }
+}
+
+
 impl Plugin for Triforce {
     type Ports = Ports;
 
@@ -209,64 +271,15 @@ impl Plugin for Triforce {
         })
     }
 
-    fn run(&mut self, ports: &mut Ports, _features: &mut (), _: u32) {
+    fn run(&mut self, ports: &mut Ports, _features: &mut (), samples: u32) {
         let now = cpu_time::ThreadTime::now();
         Beamformer::update_params(self, ports);
 
-        // Steering vector is relative to Left/Top mic
-        let inputs = vec![
-            analytic_signal(*ports.in_1),
-            analytic_signal(*ports.in_2),
-            analytic_signal(*ports.in_3),
-        ];
-        let num_samples = inputs[0].len();
-        if num_samples < 1024 {
+        if samples < 1024 {
             return;
         }
 
-        // Update the covariance matrix. We use an overlapping window to smooth over
-        // the transitions.
-        if self.samples_since_last_update as f32 >= (*ports.t_win / 1000.0) * self.sample_rate {
-            self.samples_since_last_update = 0;
-            self.covar_window[0].extend_from_slice(&inputs[0][0..768]);
-            self.covar_window[1].extend_from_slice(&inputs[1][0..768]);
-            self.covar_window[2].extend_from_slice(&inputs[2][0..768]);
-            self.covar = covariance(&self.covar_window);
-            self.covar_window[0] = inputs[0][768..1024].to_vec();
-            self.covar_window[1] = inputs[1][768..1024].to_vec();
-            self.covar_window[2] = inputs[2][768..1024].to_vec();
-        }
-        else {
-            self.samples_since_last_update += num_samples as u32;
-        }
-
-        // Get the MVDR weights
-        let w = mvdr_weights(&self.covar, &self.steering_vector);
-
-        // Now we can finally do the beamforming
-        let mut out = vec![Complex::zero(); num_samples];
-
-        for t in 0..num_samples {
-            let discrete: DVector<Complex<f32>> = DVector::from_iterator(
-                3, // number of mics
-                inputs.iter().map(|s| s[t]),
-            );
-
-            // Conjugate-linear dot product
-            out[t] = w.dotc(&discrete);
-        }
-
-        // Now we need to revert the Hilbert transform and output the signal
-        let re: Vec<f32> = out.iter().map(|z| z.re).collect();
-
-        // Do all of our NFP and clamping here
-        for (real, output) in Iterator::zip(re.iter(), ports.out.iter_mut()) {
-            if real.is_finite() && !real.is_nan() {
-                *output = real.clamp(-10f32, 10f32);
-            } else {
-                *output = 0f32;
-            }
-        }
+        self.process_slice(&ports.in_1, &ports.in_2, &ports.in_3, &mut ports.out, *ports.t_win);
 
         self.time_spent += now.elapsed();
     }

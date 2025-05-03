@@ -7,12 +7,12 @@ LIBDIR ?= $(PREFIX)/lib64
 test-release:
 	cargo build --release
 	rm -f output.wav
-	LV2_PATH=$(PWD)/lv2-release ffmpeg -i ~/norm-f32.wav -af 'lv2=p=https\\://chadmed.au/triforce'  output.wav
+	LV2_PATH=$(PWD)/lv2-release ffmpeg -stream_loop 12 -i ~/norm-f32.wav -af 'lv2=p=https\\://chadmed.au/triforce' output.wav
 
 test-debug:
 	cargo build
 	rm -f output.wav
-	LV2_PATH=$(PWD)/lv2-debug ffmpeg -i ~/norm-f32.wav -af 'lv2=p=https\\://chadmed.au/triforce'  output.wav
+	LV2_PATH=$(PWD)/lv2-debug ffmpeg -stream_loop 12 -i ~/norm-f32.wav -af 'lv2=p=https\\://chadmed.au/triforce' output.wav
 
 default:
 	cargo build --release

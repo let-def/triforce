@@ -10,14 +10,225 @@
  */
 
 use std::f32::consts::PI;
-
+use itertools::izip;
 use lv2::prelude::*;
 
-use nalgebra::{linalg::SVD, Matrix3, Vector3};
-
-use rustfft::{num_complex::Complex, num_traits::Zero, FftPlanner};
+use nalgebra::{linalg::SVD, Complex, Matrix3, Vector3};
 
 const C: f32 = 343.00; /* m*s^-1 */
+
+const ORDER: usize = 12;
+
+#[derive(Clone, Copy)]
+pub struct Coeffs {
+    coeffs_r: [f32; ORDER],
+    coeffs_i: [f32; ORDER],
+    poles_r: [f32; ORDER],
+    poles_i: [f32; ORDER],
+    direct: f32,
+}
+
+#[derive(Clone, Copy)]
+pub struct Filter {
+    real: [f32; ORDER],
+    imag: [f32; ORDER],
+}
+
+impl Coeffs {
+    fn init(sample_rate: f32, passband_gain: f32) -> Coeffs {
+        let freq_factor = f32::min(0.46, 20000.0 / sample_rate);
+        let mut result = Coeffs {
+            coeffs_r: [0.0; ORDER],
+            coeffs_i: [0.0; ORDER],
+            poles_r: [0.0; ORDER],
+            poles_i: [0.0; ORDER],
+            direct: 0.0,
+        };
+        result.direct = CONSTANTS.direct * 2.0 * passband_gain * freq_factor;
+        for i in 0..ORDER {
+            let coeff = CONSTANTS.coeffs[i] * freq_factor * passband_gain;
+            result.coeffs_r[i] = coeff.re;
+            result.coeffs_i[i] = coeff.im;
+            let pole = CONSTANTS.poles[i].powf(freq_factor);
+            result.poles_r[i] = pole.re;
+            result.poles_i[i] = pole.im;
+        }
+        result
+    }
+}
+
+impl Filter {
+    const INITIAL : Filter = Filter {
+        real: [-1.0; ORDER],
+        imag: [0.0; ORDER],
+    };
+
+    // fn sample(&mut self, coeffs: &Coeffs, x: f32) -> (f32, f32) {
+    //     let mut result_r = x * coeffs.direct;
+    //     let mut result_i = 0.0;
+    //     for i in 0..ORDER {
+    //         let real = self.real[i] * coeffs.poles_r[i] - self.imag[i] * coeffs.poles_i[i] + x * coeffs.coeffs_r[i];
+    //         let imag = self.real[i] * coeffs.poles_i[i] + self.imag[i] * coeffs.poles_r[i] + x * coeffs.coeffs_i[i];
+    //         result_r += real;
+    //         self.real[i] = real;
+    //         result_i += imag;
+    //         self.imag[i] = imag;
+    //     }
+    //     (result_r, result_i)
+    // }
+
+    // fn process(&mut self, coeffs: &Coeffs, x: &[f32], r: &mut [f32], i: &mut [f32]) {
+    //     for (x, r, i) in izip!(x, r, i) {
+    //         let (rr, ri) = self.sample(coeffs, *x);
+    //         *r = rr;
+    //         *i = ri;
+    //     }
+    // }
+
+    // fn process2(
+    //     coeffs: &Coeffs,
+    //     state: &mut [Self; 2],
+    //     x0: &[f32],
+    //     x1: &[f32],
+    //     r0: &mut [f32],
+    //     r1: &mut [f32],
+    //     i0: &mut [f32],
+    //     i1: &mut [f32],
+    // ) {
+    //     for (x0, x1, r0, r1, i0, i1) in izip!(x0, x1, r0, r1, i0, i1) {
+    //         let mut r0v = x0 * coeffs.direct;
+    //         let mut i0v = 0.0;
+    //         let mut r1v = x1 * coeffs.direct;
+    //         let mut i1v = 0.0;
+    //         for j in 0..ORDER {
+    //             let real0 = state[0].real[j] * coeffs.poles_r[j]
+    //                 - state[0].imag[j] * coeffs.poles_i[j]
+    //                 + x0 * coeffs.coeffs_r[j];
+    //             let imag0 = state[0].real[j] * coeffs.poles_i[j]
+    //                 + state[0].imag[j] * coeffs.poles_r[j]
+    //                 + x0 * coeffs.coeffs_i[j];
+    //             let real1 = state[1].real[j] * coeffs.poles_r[j]
+    //                 - state[1].imag[j] * coeffs.poles_i[j]
+    //                 + x1 * coeffs.coeffs_r[j];
+    //             let imag1 = state[1].real[j] * coeffs.poles_i[j]
+    //                 + state[1].imag[j] * coeffs.poles_r[j]
+    //                 + x1 * coeffs.coeffs_i[j];
+    //             r0v += real0;
+    //             state[0].real[j] = real0;
+    //             i0v += imag0;
+    //             state[0].imag[j] = imag0;
+    //             r1v += real1;
+    //             state[1].real[j] = real1;
+    //             i1v += imag1;
+    //             state[1].imag[j] = imag1;
+    //         }
+    //         *r0 = r0v;
+    //         *i0 = i0v;
+    //         *r1 = r1v;
+    //         *i1 = i1v;
+    //     }
+    // }
+
+    fn process3(
+        coeffs: &Coeffs,
+        state: &mut [Self; 3],
+        x0: &[f32],
+        x1: &[f32],
+        x2: &[f32],
+        r0: &mut [f32],
+        r1: &mut [f32],
+        r2: &mut [f32],
+        i0: &mut [f32],
+        i1: &mut [f32],
+        i2: &mut [f32],
+    ) {
+        for (x0, x1, x2, r0, r1, r2, i0, i1, i2) in izip!(x0, x1, x2, r0, r1, r2, i0, i1, i2) {
+            let mut r0_val = x0 * coeffs.direct;
+            let mut i0_val = 0.0;
+            let mut r1_val = x1 * coeffs.direct;
+            let mut i1_val = 0.0;
+            let mut r2_val = x2 * coeffs.direct;
+            let mut i2_val = 0.0;
+            for j in 0..ORDER {
+                let real0 = state[0].real[j] * coeffs.poles_r[j]
+                    - state[0].imag[j] * coeffs.poles_i[j]
+                    + x0 * coeffs.coeffs_r[j];
+                let imag0 = state[0].real[j] * coeffs.poles_i[j]
+                    + state[0].imag[j] * coeffs.poles_r[j]
+                    + x0 * coeffs.coeffs_i[j];
+                let real1 = state[1].real[j] * coeffs.poles_r[j]
+                    - state[1].imag[j] * coeffs.poles_i[j]
+                    + x1 * coeffs.coeffs_r[j];
+                let imag1 = state[1].real[j] * coeffs.poles_i[j]
+                    + state[1].imag[j] * coeffs.poles_r[j]
+                    + x1 * coeffs.coeffs_i[j];
+                let real2 = state[2].real[j] * coeffs.poles_r[j]
+                    - state[2].imag[j] * coeffs.poles_i[j]
+                    + x2 * coeffs.coeffs_r[j];
+                let imag2 = state[2].real[j] * coeffs.poles_i[j]
+                    + state[2].imag[j] * coeffs.poles_r[j]
+                    + x2 * coeffs.coeffs_i[j];
+                r0_val += real0;
+                state[0].real[j] = real0;
+                i0_val += imag0;
+                state[0].imag[j] = imag0;
+                r1_val += real1;
+                state[1].real[j] = real1;
+                i1_val += imag1;
+                state[1].imag[j] = imag1;
+                r2_val += real2;
+                state[2].real[j] = real2;
+                i2_val += imag2;
+                state[2].imag[j] = imag2;
+            }
+            *r0 = r0_val;
+            *i0 = i0_val;
+            *r1 = r1_val;
+            *i1 = i1_val;
+            *r2 = r2_val;
+            *i2 = i2_val;
+        }
+    }
+
+}
+
+struct Constants {
+    coeffs: [Complex<f32>; ORDER],
+    poles: [Complex<f32>; ORDER],
+    direct: f32,
+}
+
+const CONSTANTS: Constants = Constants {
+    coeffs: [
+        Complex::<f32>::new(-0.000224352093802, 0.00543499018201),
+        Complex::<f32>::new(0.010750055781500, -0.01738906856810),
+        Complex::<f32>::new(-0.045679587391700, 0.02291669314290),
+        Complex::<f32>::new(0.112825005820000, 0.00278413661237),
+        Complex::<f32>::new(-0.208067578452000, -0.10462895867500),
+        Complex::<f32>::new(0.287178375010000, 0.33619239719000),
+        Complex::<f32>::new(-0.254675294431000, -0.68303389965500),
+        Complex::<f32>::new(0.048108183502600, 0.95406158937400),
+        Complex::<f32>::new(0.227861357867000, -0.89127357456900),
+        Complex::<f32>::new(-0.365411839137000, 0.52508831727100),
+        Complex::<f32>::new(0.280729061131000, -0.15513120660600),
+        Complex::<f32>::new(-0.093506178772800, 0.00512245855404),
+    ],
+    poles: [
+        Complex::<f32>::new(-0.00495335976478, 0.0092579876872),
+        Complex::<f32>::new(-0.01785949130200, 0.0273493725543),
+        Complex::<f32>::new(-0.04137143731550, 0.0744756910287),
+        Complex::<f32>::new(-0.08821484088850, 0.1783496774570),
+        Complex::<f32>::new(-0.17922965812000, 0.3960134022300),
+        Complex::<f32>::new(-0.33826180075300, 0.8292295333540),
+        Complex::<f32>::new(-0.55768869973200, 1.6129853832800),
+        Complex::<f32>::new(-0.73515773614800, 2.7998739868200),
+        Complex::<f32>::new(-0.71905738117200, 4.1639616612800),
+        Complex::<f32>::new(-0.51787102520900, 5.2972482680400),
+        Complex::<f32>::new(-0.28019746947100, 5.9959860238800),
+        Complex::<f32>::new(-0.08527513545310, 6.3048492377000),
+    ],
+    direct: 0.000262057212648,
+};
 
 /// The distance of a given element in the array from the zeroth
 /// element
@@ -25,40 +236,6 @@ const C: f32 = 343.00; /* m*s^-1 */
 struct ElemDistance {
     x: f32,
     y: f32,
-}
-
-/// Perform a Hilbert transform on a slice of f32s to give us the analytic signal of
-/// our input sample buffer. This is necessary to extract phase information from the
-/// signal, and to make matrix operations a bit easier.
-fn analytic_signal(planner: &mut FftPlanner<f32>, signal: &[f32], len: usize, output: &mut Vec<Complex<f32>>) {
-
-    // Convert each real sample into a complex sample
-    output.resize(len, Complex::zero());
-    for (o, i) in output.iter_mut().zip(signal.iter()) {
-        *o = Complex::new(*i, 0.0);
-    }
-
-    // Set up the fft and inverse fft
-    let fft = planner.plan_fft_forward(len);
-    let ifft = planner.plan_fft_inverse(len);
-
-    // Mutate the output buffer into the forward FFT
-    fft.process(output);
-
-    // Perform the Hilbert transform on the FFT. To do this, we multiply every
-    // positive sample under the Nyquist limit by 2+0j, and destroy every sample
-    // above it.
-    for i in 0..len {
-        if i > 0 && i < len / 2 {
-            output[i] *= Complex::new(2.0, 0.0);
-        } else if i >= len / 2 {
-            output[i] = Complex::zero();
-        }
-    }
-
-    // Turn the original complex buffer into the inverse FFT and then normalise
-    ifft.process(output);
-    output.iter_mut().for_each(|x| *x /= len as f32);
 }
 
 /// The steering vector is a representation of the phase delays at each microphone.
@@ -90,11 +267,17 @@ fn steering_vec(theta: f32, phi: f32, f: f32, elems: [ElemDistance; 3]) -> Vecto
 
 /// There's nothing special about this, it's just a covariance matrix. It is always
 /// square.
-fn covariance(signals: &Vec<Vec<Complex<f32>>>, n_samples: usize) -> Matrix3<Complex<f32>> {
+fn covariance(real: &[Vec<f32>; 3], imag: &[Vec<f32>; 3]) -> Matrix3<Complex<f32>> {
+    let n_samples = real[0].len();
+
     let mut covar = Matrix3::zeros();
 
     for t in 0..n_samples {
-        let discrete: Vector3<Complex<f32>> = Vector3::from_iterator(signals.iter().map(|s| s[t]));
+        let discrete: Vector3<Complex<f32>> = Vector3::new(
+            Complex::new(real[0][t], imag[0][t]),
+            Complex::new(real[1][t], imag[1][t]),
+            Complex::new(real[2][t], imag[2][t])
+        );
         covar += &discrete * discrete.adjoint();
     }
 
@@ -165,13 +348,20 @@ pub struct Triforce {
     freq_curr: f32,
     sample_rate: f32,
     samples_since_last_update: usize,
-    covar_window: Vec<Vec<Complex<f32>>>,
     steering_vector: Vector3<Complex<f32>>,
+    window_real: [Vec<f32>; 3],
+    window_imag: [Vec<f32>; 3],
     covar: Matrix3<Complex<f32>>,
     array_geom: [ElemDistance; 3],
-    fft_planner: FftPlanner<f32>,
     weights: Vector3<Complex<f32>>,
-    inputs: [Vec<Complex<f32>>; 3],
+    analytic_coeffs: Coeffs,
+    analytic_filters: [Filter; 3],
+    input_real0: Vec<f32>,
+    input_real1: Vec<f32>,
+    input_real2: Vec<f32>,
+    input_imag0: Vec<f32>,
+    input_imag1: Vec<f32>,
+    input_imag2: Vec<f32>,
 }
 
 trait Beamformer: Plugin {
@@ -186,11 +376,8 @@ impl Triforce {
             freq_curr: 1000f32,
             samples_since_last_update: usize::max_value(),
             sample_rate,
-            covar_window: vec![
-                vec![Complex::new(0f32, 0f32); 256],
-                vec![Complex::new(0f32, 0f32); 256],
-                vec![Complex::new(0f32, 0f32); 256],
-            ],
+            window_real: [Vec::new(),Vec::new(),Vec::new()],
+            window_imag: [Vec::new(),Vec::new(),Vec::new()],
             array_geom: [ElemDistance { x: 0f32, y: 0f32 }; 3],
             steering_vector: steering_vec(
                 90f32.to_radians(),
@@ -199,9 +386,15 @@ impl Triforce {
                 [ElemDistance { x: 0f32, y: 0f32 }; 3],
             ),
             covar: Matrix3::zeros(),
-            fft_planner: FftPlanner::new(),
             weights: Vector3::zeros(),
-            inputs: [Vec::new(), Vec::new(), Vec::new()],
+            analytic_coeffs: Coeffs::init(sample_rate, 2.0),
+            analytic_filters: [Filter::INITIAL,Filter::INITIAL,Filter::INITIAL],
+            input_real0: Vec::new(),
+            input_real1: Vec::new(),
+            input_real2: Vec::new(),
+            input_imag0: Vec::new(),
+            input_imag1: Vec::new(),
+            input_imag2: Vec::new(),
         }
     }
 
@@ -215,9 +408,20 @@ impl Triforce {
         buf_len: usize
     ) {
         // Steering vector is relative to Left/Top mic
-        analytic_signal(&mut self.fft_planner, mic1, buf_len, &mut self.inputs[0]);
-        analytic_signal(&mut self.fft_planner, mic2, buf_len, &mut self.inputs[1]);
-        analytic_signal(&mut self.fft_planner, mic3, buf_len, &mut self.inputs[2]);
+        self.input_real0.resize(buf_len, 0.0);
+        self.input_imag0.resize(buf_len, 0.0);
+        self.input_real1.resize(buf_len, 0.0);
+        self.input_imag1.resize(buf_len, 0.0);
+        self.input_real2.resize(buf_len, 0.0);
+        self.input_imag2.resize(buf_len, 0.0);
+        Filter::process3(&self.analytic_coeffs, &mut self.analytic_filters,
+                         mic1, mic2, mic3,
+                         &mut self.input_real0,
+                         &mut self.input_real1,
+                         &mut self.input_real2,
+                         &mut self.input_imag0,
+                         &mut self.input_imag1,
+                         &mut self.input_imag2);
 
         // Update the covariance matrix. We use an overlapping window to smooth over
         // the transitions.
@@ -225,29 +429,35 @@ impl Triforce {
             self.samples_since_last_update = 0;
             // We want a 1/3 overlap
             let i = buf_len / 3;
-            self.covar_window[0].extend_from_slice(&self.inputs[0][0..i]);
-            self.covar_window[1].extend_from_slice(&self.inputs[1][0..i]);
-            self.covar_window[2].extend_from_slice(&self.inputs[2][0..i]);
-            self.covar = covariance(&self.covar_window, self.covar_window[0].len());
-            self.covar_window[0].clear();
-            self.covar_window[0].extend_from_slice(&self.inputs[0][i..buf_len]);
-            self.covar_window[1].clear();
-            self.covar_window[1].extend_from_slice(&self.inputs[1][i..buf_len]);
-            self.covar_window[2].clear();
-            self.covar_window[2].extend_from_slice(&self.inputs[2][i..buf_len]);
+            self.window_real[0].extend_from_slice(&self.input_real0[0..i]);
+            self.window_real[1].extend_from_slice(&self.input_real1[0..i]);
+            self.window_real[2].extend_from_slice(&self.input_real2[0..i]);
+            self.window_imag[0].extend_from_slice(&self.input_imag0[0..i]);
+            self.window_imag[1].extend_from_slice(&self.input_imag1[0..i]);
+            self.window_imag[2].extend_from_slice(&self.input_imag2[0..i]);
+            self.covar = covariance(&self.window_real, &self.window_imag);
+            self.window_real[0] = self.input_real0[i..buf_len].to_vec();
+            self.window_real[1] = self.input_real1[i..buf_len].to_vec();
+            self.window_real[2] = self.input_real2[i..buf_len].to_vec();
+            self.window_imag[0] = self.input_imag0[i..buf_len].to_vec();
+            self.window_imag[1] = self.input_imag1[i..buf_len].to_vec();
+            self.window_imag[2] = self.input_imag2[i..buf_len].to_vec();
             self.weights = mvdr_weights(&self.covar, &self.steering_vector);
         } else {
             self.samples_since_last_update += buf_len;
         }
 
         for t in 0..buf_len {
-            let discrete: Vector3<Complex<f32>> =
-                Vector3::from_iterator(self.inputs.iter().map(|s| s[t]));
+            let discrete: Vector3<Complex<f32>> = Vector3::new(
+                Complex::new(self.input_real0[t], self.input_imag0[t]),
+                Complex::new(self.input_real1[t], self.input_imag1[t]),
+                Complex::new(self.input_real2[t], self.input_imag2[t])
+            );
 
             let out =
                 // Conjugate-linear dot product
                 self.weights.dotc(&discrete)
-                // // Now we need to revert the Hilbert transform and output the signal
+                // Now we need to revert the Hilbert transform and output the signal
                 .re;
 
             // Do all of our NFP and clamping here

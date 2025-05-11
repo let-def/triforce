@@ -49,7 +49,7 @@ impl Coeffs {
             let coeff = CONSTANTS.coeffs[i] * freq_factor * passband_gain;
             result.coeffs_r[i] = coeff.re;
             result.coeffs_i[i] = coeff.im;
-            let pole = CONSTANTS.poles[i].powf(freq_factor);
+            let pole = (CONSTANTS.poles[i] * freq_factor).exp();
             result.poles_r[i] = pole.re;
             result.poles_i[i] = pole.im;
         }

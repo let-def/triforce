@@ -480,7 +480,7 @@ impl Plugin for Triforce {
         Some(Self::with_sample_rate(info.sample_rate() as f32))
     }
 
-    fn run(&mut self, ports: &mut Ports, _features: &mut (), samples: u32) {
+    fn run(&mut self, ports: &mut Ports, _features: &mut (), _: u32) {
         Beamformer::update_params(self, ports);
         self.process_slice(
             &ports.in_1,

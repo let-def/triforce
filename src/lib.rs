@@ -142,32 +142,33 @@ impl Filter {
         i1: &mut [f32],
         i2: &mut [f32],
     ) {
-        for (x0, x1, x2, r0, r1, r2, i0, i1, i2) in izip!(x0, x1, x2, r0, r1, r2, i0, i1, i2) {
-            let mut r0_val = x0 * coeffs.direct;
+        let samples = x0.len();
+        for i in 0..samples {
+            let mut r0_val = x0[i] * coeffs.direct;
             let mut i0_val = 0.0;
-            let mut r1_val = x1 * coeffs.direct;
+            let mut r1_val = x1[i] * coeffs.direct;
             let mut i1_val = 0.0;
-            let mut r2_val = x2 * coeffs.direct;
+            let mut r2_val = x2[i] * coeffs.direct;
             let mut i2_val = 0.0;
             for j in 0..ORDER {
                 let real0 = state[0].real[j] * coeffs.poles_r[j]
                     - state[0].imag[j] * coeffs.poles_i[j]
-                    + x0 * coeffs.coeffs_r[j];
+                    + x0[i] * coeffs.coeffs_r[j];
                 let imag0 = state[0].real[j] * coeffs.poles_i[j]
                     + state[0].imag[j] * coeffs.poles_r[j]
-                    + x0 * coeffs.coeffs_i[j];
+                    + x0[i] * coeffs.coeffs_i[j];
                 let real1 = state[1].real[j] * coeffs.poles_r[j]
                     - state[1].imag[j] * coeffs.poles_i[j]
-                    + x1 * coeffs.coeffs_r[j];
+                    + x1[i] * coeffs.coeffs_r[j];
                 let imag1 = state[1].real[j] * coeffs.poles_i[j]
                     + state[1].imag[j] * coeffs.poles_r[j]
-                    + x1 * coeffs.coeffs_i[j];
+                    + x1[i] * coeffs.coeffs_i[j];
                 let real2 = state[2].real[j] * coeffs.poles_r[j]
                     - state[2].imag[j] * coeffs.poles_i[j]
-                    + x2 * coeffs.coeffs_r[j];
+                    + x2[i] * coeffs.coeffs_r[j];
                 let imag2 = state[2].real[j] * coeffs.poles_i[j]
                     + state[2].imag[j] * coeffs.poles_r[j]
-                    + x2 * coeffs.coeffs_i[j];
+                    + x2[i] * coeffs.coeffs_i[j];
                 r0_val += real0;
                 state[0].real[j] = real0;
                 i0_val += imag0;
@@ -181,12 +182,12 @@ impl Filter {
                 i2_val += imag2;
                 state[2].imag[j] = imag2;
             }
-            *r0 = r0_val;
-            *i0 = i0_val;
-            *r1 = r1_val;
-            *i1 = i1_val;
-            *r2 = r2_val;
-            *i2 = i2_val;
+            r0[i] = r0_val;
+            i0[i] = i0_val;
+            r1[i] = r1_val;
+            i1[i] = i1_val;
+            r2[i] = r2_val;
+            i2[i] = i2_val;
         }
     }
 

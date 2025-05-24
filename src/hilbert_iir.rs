@@ -97,25 +97,21 @@ impl Filter {
         }
     }
 
-    pub fn process_split<const N: usize>(&self, state: &mut [State; N], input: &[&[f32]; N], real: &mut [&mut [f32]], imag: &mut [&mut [f32]]) {
+    pub fn process_split<const N: usize>(&self, state: &mut [State; N], input: &[&[f32]; N], real: &mut [&mut [f32]; N], imag: &mut [&mut [f32]; N]) {
         if N == 0 { return };
         let samples = input[0].len();
         for i in 0..samples {
             let mut ra : [f32; N] = input.map(|x| x[i] * self.direct);
             let mut ia : [f32; N] = [0f32; N];
             for j in 0..ORDER {
-                let mut rv = [0f32; N];
-                let mut iv = [0f32; N];
                 for k in 0..N {
-                    rv[k] = state[k].real[j] * self.poles_r[j] - state[k].imag[j] * self.poles_i[j] + input[k][i] * self.coeffs_r[j];
-                    iv[k] = state[k].real[j] * self.poles_i[j] + state[k].imag[j] * self.poles_r[j] + input[k][i] * self.coeffs_i[j];
+                    let r = state[k].real[j] * self.poles_r[j] - state[k].imag[j] * self.poles_i[j] + input[k][i] * self.coeffs_r[j];
+                    let i = state[k].real[j] * self.poles_i[j] + state[k].imag[j] * self.poles_r[j] + input[k][i] * self.coeffs_i[j];
+                    ra[k] += r;
+                    ia[k] += i;
+                    state[k].real[j] = r;
+                    state[k].imag[j] = i;
                 };
-                for k in 0..N {
-                    ra[k] += rv[k];
-                    ia[k] += iv[k];
-                    state[k].real[j] = rv[k];
-                    state[k].imag[j] = iv[k];
-                }
             }
             for k in 0..N {
                 real[k][i] = ra[k];

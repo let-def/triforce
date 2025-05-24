@@ -10,7 +10,6 @@
  */
 
 use std::f32::consts::PI;
-use itertools::izip;
 use lv2::prelude::*;
 
 use nalgebra::{linalg::SVD, Complex, Matrix3, Vector3};

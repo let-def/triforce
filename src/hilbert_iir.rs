@@ -97,7 +97,7 @@ impl Filter {
         &self,
         state: &mut [State; N],
         input: &[&[f32]; N],
-        output: &mut [&mut [Complex<f32>]],
+        output: &mut [&mut [Complex<f32>]; N],
     ) {
         if N == 0 {
             return;

@@ -9,10 +9,10 @@
  * Copyright (C) 2024 James Calligeros <jcalligeros99@gmail.com>
  */
 
-use std::f32::consts::PI;
 use lv2::prelude::*;
 
 use nalgebra::{linalg::SVD, Complex, Matrix3, Vector3};
+use std::f32::consts::PI;
 mod hilbert_iir;
 
 const C: f32 = 343.00; /* m*s^-1 */
@@ -54,17 +54,13 @@ fn steering_vec(theta: f32, phi: f32, f: f32, elems: [ElemDistance; 3]) -> Vecto
 
 /// There's nothing special about this, it's just a covariance matrix. It is always
 /// square.
-fn covariance(real: &[Vec<f32>; 3], imag: &[Vec<f32>; 3]) -> Matrix3<Complex<f32>> {
-    let n_samples = real[0].len();
+fn covariance(input: &[Vec<Complex<f32>>; 3]) -> Matrix3<Complex<f32>> {
+    let n_samples = input[0].len();
 
     let mut covar = Matrix3::zeros();
 
     for t in 0..n_samples {
-        let discrete: Vector3<Complex<f32>> = Vector3::new(
-            Complex::new(real[0][t], imag[0][t]),
-            Complex::new(real[1][t], imag[1][t]),
-            Complex::new(real[2][t], imag[2][t])
-        );
+        let discrete: Vector3<Complex<f32>> = Vector3::new(input[0][t], input[1][t], input[2][t]);
         covar += &discrete * discrete.adjoint();
     }
 
@@ -136,19 +132,15 @@ pub struct Triforce {
     sample_rate: f32,
     samples_since_last_update: usize,
     steering_vector: Vector3<Complex<f32>>,
-    window_real: [Vec<f32>; 3],
-    window_imag: [Vec<f32>; 3],
+    window: [Vec<Complex<f32>>; 3],
     covar: Matrix3<Complex<f32>>,
     array_geom: [ElemDistance; 3],
     weights: Vector3<Complex<f32>>,
     analytic_filter: hilbert_iir::Filter,
     analytic_state: [hilbert_iir::State; 3],
-    input_real0: Vec<f32>,
-    input_real1: Vec<f32>,
-    input_real2: Vec<f32>,
-    input_imag0: Vec<f32>,
-    input_imag1: Vec<f32>,
-    input_imag2: Vec<f32>,
+    input0: Vec<Complex<f32>>,
+    input1: Vec<Complex<f32>>,
+    input2: Vec<Complex<f32>>,
 }
 
 trait Beamformer: Plugin {
@@ -163,8 +155,7 @@ impl Triforce {
             freq_curr: 1000f32,
             samples_since_last_update: usize::max_value(),
             sample_rate,
-            window_real: [Vec::new(),Vec::new(),Vec::new()],
-            window_imag: [Vec::new(),Vec::new(),Vec::new()],
+            window: [Vec::new(), Vec::new(), Vec::new()],
             array_geom: [ElemDistance { x: 0f32, y: 0f32 }; 3],
             steering_vector: steering_vec(
                 90f32.to_radians(),
@@ -176,12 +167,9 @@ impl Triforce {
             weights: Vector3::zeros(),
             analytic_filter: hilbert_iir::Filter::init(sample_rate, 2.0),
             analytic_state: [hilbert_iir::State::INITIAL; 3],
-            input_real0: Vec::new(),
-            input_real1: Vec::new(),
-            input_real2: Vec::new(),
-            input_imag0: Vec::new(),
-            input_imag1: Vec::new(),
-            input_imag2: Vec::new(),
+            input0: Vec::new(),
+            input1: Vec::new(),
+            input2: Vec::new(),
         }
     }
 
@@ -195,16 +183,14 @@ impl Triforce {
         buf_len: usize
     ) {
         // Steering vector is relative to Left/Top mic
-        self.input_real0.resize(buf_len, 0.0);
-        self.input_imag0.resize(buf_len, 0.0);
-        self.input_real1.resize(buf_len, 0.0);
-        self.input_imag1.resize(buf_len, 0.0);
-        self.input_real2.resize(buf_len, 0.0);
-        self.input_imag2.resize(buf_len, 0.0);
-        self.analytic_filter.process_split(&mut self.analytic_state,
-                                           &[mic1, mic2, mic3],
-                                           &mut [&mut self.input_real0, &mut self.input_real1, &mut self.input_real2],
-                                           &mut [&mut self.input_imag0, &mut self.input_imag1, &mut self.input_imag2]);
+        self.input0.resize(buf_len, Complex::ZERO);
+        self.input1.resize(buf_len, Complex::ZERO);
+        self.input2.resize(buf_len, Complex::ZERO);
+        self.analytic_filter.process(
+            &mut self.analytic_state,
+            &[mic1, mic2, mic3],
+            &mut [&mut self.input0, &mut self.input1, &mut self.input2],
+        );
 
         // Update the covariance matrix. We use an overlapping window to smooth over
         // the transitions.
@@ -212,30 +198,24 @@ impl Triforce {
             self.samples_since_last_update = 0;
             // We want a 1/3 overlap
             let i = buf_len / 3;
-            self.window_real[0].extend_from_slice(&self.input_real0[0..i]);
-            self.window_real[1].extend_from_slice(&self.input_real1[0..i]);
-            self.window_real[2].extend_from_slice(&self.input_real2[0..i]);
-            self.window_imag[0].extend_from_slice(&self.input_imag0[0..i]);
-            self.window_imag[1].extend_from_slice(&self.input_imag1[0..i]);
-            self.window_imag[2].extend_from_slice(&self.input_imag2[0..i]);
-            self.covar = covariance(&self.window_real, &self.window_imag);
-            self.window_real[0] = self.input_real0[i..buf_len].to_vec();
-            self.window_real[1] = self.input_real1[i..buf_len].to_vec();
-            self.window_real[2] = self.input_real2[i..buf_len].to_vec();
-            self.window_imag[0] = self.input_imag0[i..buf_len].to_vec();
-            self.window_imag[1] = self.input_imag1[i..buf_len].to_vec();
-            self.window_imag[2] = self.input_imag2[i..buf_len].to_vec();
+            self.window[0].extend_from_slice(&self.input0[0..i]);
+            self.window[1].extend_from_slice(&self.input1[0..i]);
+            self.window[2].extend_from_slice(&self.input2[0..i]);
+            self.covar = covariance(&self.window);
+            self.window[0].clear();
+            self.window[0].extend_from_slice(&self.input0[i..buf_len]);
+            self.window[1].clear();
+            self.window[1].extend_from_slice(&self.input1[i..buf_len]);
+            self.window[2].clear();
+            self.window[2].extend_from_slice(&self.input2[i..buf_len]);
             self.weights = mvdr_weights(&self.covar, &self.steering_vector);
         } else {
             self.samples_since_last_update += buf_len;
         }
 
         for t in 0..buf_len {
-            let discrete: Vector3<Complex<f32>> = Vector3::new(
-                Complex::new(self.input_real0[t], self.input_imag0[t]),
-                Complex::new(self.input_real1[t], self.input_imag1[t]),
-                Complex::new(self.input_real2[t], self.input_imag2[t])
-            );
+            let discrete: Vector3<Complex<f32>> =
+                Vector3::new(self.input0[t], self.input1[t], self.input2[t]);
 
             let out =
                 // Conjugate-linear dot product

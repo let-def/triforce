@@ -97,6 +97,7 @@ impl Filter {
         }
     }
 
+    #[allow(dead_code)]
     pub fn process_split<const N: usize>(&self, state: &mut [State; N], input: &[&[f32]; N], real: &mut [&mut [f32]; N], imag: &mut [&mut [f32]; N]) {
         if N == 0 { return };
         let samples = input[0].len();

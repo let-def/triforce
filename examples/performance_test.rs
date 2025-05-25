@@ -24,8 +24,12 @@ fn main() {
     let sample_rate = 48000.0;
     let mut inst = triforce::Triforce::with_sample_rate(48000.0);
     let i1: Vec<f32> = (0..blocksize).map(|x| (x as f32) / 1024.0).collect();
-    let i2: Vec<f32> = (0..blocksize).map(|x| ((x as f32) + 10.0) / 1024.0).collect();
-    let i3: Vec<f32> = (0..blocksize).map(|x| ((x as f32) - 10.0) / 1024.0).collect();
+    let i2: Vec<f32> = (0..blocksize)
+        .map(|x| ((x as f32) + 10.0) / 1024.0)
+        .collect();
+    let i3: Vec<f32> = (0..blocksize)
+        .map(|x| ((x as f32) - 10.0) / 1024.0)
+        .collect();
     let mut out: Vec<f32> = Vec::new();
     out.resize(blocksize, 0.0);
     for _ in 0..(sample_rate * seconds / blocksize as f32) as i32 {

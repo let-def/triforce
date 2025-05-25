@@ -2,12 +2,13 @@ use nalgebra::Complex;
 
 // Approximate Hilbert analytic transform with an IIR filter.
 // Taken directly from 0BSD-licensed https://github.com/Signalsmith-Audio/hilbert-iir
-// The filter uses a 12th-order IIR design with pre-calculated coefficients and poles.
-// To increase throughput, it's designed to work with multiple channels simultaneously.
+// The filter uses a 12th-order IIR design with pre-calculated coefficients and
+// poles. To increase throughput, it's designed to work with multiple channels
+// simultaneously.
 
 const ORDER: usize = 12;
 
-// Pre-calculated complex coefficients for the IIR filter.
+/// Pre-calculated complex coefficients for the IIR filter.
 const COEFFS: [Complex<f32>; ORDER] = [
     Complex::<f32>::new(-0.000224352093802, 0.00543499018201),
     Complex::<f32>::new(0.010750055781500, -0.01738906856810),
@@ -23,7 +24,7 @@ const COEFFS: [Complex<f32>; ORDER] = [
     Complex::<f32>::new(-0.093506178772800, 0.00512245855404),
 ];
 
-// Pre-calculated complex poles for the IIR filter.
+/// Pre-calculated complex poles for the IIR filter.
 const POLES: [Complex<f32>; ORDER] = [
     Complex::<f32>::new(-0.00495335976478, 0.0092579876872),
     Complex::<f32>::new(-0.01785949130200, 0.0273493725543),
@@ -39,14 +40,16 @@ const POLES: [Complex<f32>; ORDER] = [
     Complex::<f32>::new(-0.08527513545310, 6.3048492377000),
 ];
 
-// Direct term for the IIR filter.
+/// Direct term for the IIR filter.
 const DIRECT: f32 = 0.000262057212648;
 
 // Performance note:
-// Internal structures separate the real and imaginary components using two float arrays rather than an array of Complex<f32> as this offer more opportunity for auto-vectorization.
+// Internal structures separate the real and imaginary components using two
+// float arrays rather than an array of Complex<f32> as this offer more
+// opportunity for auto-vectorization.
 
-// Structure representing the IIR filter with its coefficients and poles.
-// The coefficients are computed once and shared across all channels.
+/// Structure representing the IIR filter with its coefficients and poles.
+/// The coefficients are computed once and shared across all channels.
 #[derive(Clone, Copy)]
 pub struct Filter {
     coeffs_r: [f32; ORDER],
@@ -56,8 +59,9 @@ pub struct Filter {
     direct: f32,
 }
 
-// Structure representing the state of the filter for one channel.
-// Each channel maintains its own state to track the filter's internal variables.
+/// Structure representing the state of the filter for one channel.
+/// Each channel maintains its own state to track the filter's internal
+/// variables.
 #[derive(Clone, Copy)]
 pub struct State {
     real: [f32; ORDER],
@@ -65,8 +69,8 @@ pub struct State {
 }
 
 impl Filter {
-    // Initialize a filter with the given sample rate and passband gain.
-    // Recommended settings: `Filter::new(48000.0, 2.0)`
+    /// Initialize a filter with the given sample rate and passband gain.
+    /// Recommended settings: `Filter::new(48000.0, 2.0)`
     pub fn new(sample_rate: f32, passband_gain: f32) -> Filter {
         let freq_factor = f32::min(0.46, 20000.0 / sample_rate);
         let mut result = Filter {
@@ -88,20 +92,31 @@ impl Filter {
         result
     }
 
-    // Process the input signal and produce the output signal for N channels.
-    pub fn process<const N: usize>(&self, state: &mut [State; N], input: &[&[f32]; N], output: &mut [&mut [Complex<f32>]]) {
-        if N == 0 { return };
+    /// Process the input signal and produce the output signal for N channels.
+    pub fn process<const N: usize>(
+        &self,
+        state: &mut [State; N],
+        input: &[&[f32]; N],
+        output: &mut [&mut [Complex<f32>]],
+    ) {
+        if N == 0 {
+            return;
+        };
         let samples = input[0].len();
         for i in 0..samples {
-            let mut ra : [f32; N] = input.map(|x| x[i] * self.direct);
-            let mut ia : [f32; N] = [0f32; N];
+            let mut ra: [f32; N] = input.map(|x| x[i] * self.direct);
+            let mut ia: [f32; N] = [0f32; N];
             for j in 0..ORDER {
                 let mut rv = [0f32; N];
                 let mut iv = [0f32; N];
                 for k in 0..N {
-                    rv[k] = state[k].real[j] * self.poles_r[j] - state[k].imag[j] * self.poles_i[j] + input[k][i] * self.coeffs_r[j];
-                    iv[k] = state[k].real[j] * self.poles_i[j] + state[k].imag[j] * self.poles_r[j] + input[k][i] * self.coeffs_i[j];
-                };
+                    rv[k] = state[k].real[j] * self.poles_r[j]
+                        - state[k].imag[j] * self.poles_i[j]
+                        + input[k][i] * self.coeffs_r[j];
+                    iv[k] = state[k].real[j] * self.poles_i[j]
+                        + state[k].imag[j] * self.poles_r[j]
+                        + input[k][i] * self.coeffs_i[j];
+                }
                 for k in 0..N {
                     ra[k] += rv[k];
                     ia[k] += iv[k];
@@ -115,23 +130,36 @@ impl Filter {
         }
     }
 
+    /// Process the input signal and produce separate real and imaginary output
+    /// signals for N channels.
     #[allow(dead_code)]
-    // Process the input signal and produce separate real and imaginary output signals for N channels.
-    pub fn process_split<const N: usize>(&self, state: &mut [State; N], input: &[&[f32]; N], real: &mut [&mut [f32]; N], imag: &mut [&mut [f32]; N]) {
-        if N == 0 { return };
+    pub fn process_split<const N: usize>(
+        &self,
+        state: &mut [State; N],
+        input: &[&[f32]; N],
+        real: &mut [&mut [f32]; N],
+        imag: &mut [&mut [f32]; N],
+    ) {
+        if N == 0 {
+            return;
+        };
         let samples = input[0].len();
         for i in 0..samples {
-            let mut ra : [f32; N] = input.map(|x| x[i] * self.direct);
-            let mut ia : [f32; N] = [0f32; N];
+            let mut ra: [f32; N] = input.map(|x| x[i] * self.direct);
+            let mut ia: [f32; N] = [0f32; N];
             for j in 0..ORDER {
                 for k in 0..N {
-                    let r = state[k].real[j] * self.poles_r[j] - state[k].imag[j] * self.poles_i[j] + input[k][i] * self.coeffs_r[j];
-                    let i = state[k].real[j] * self.poles_i[j] + state[k].imag[j] * self.poles_r[j] + input[k][i] * self.coeffs_i[j];
+                    let r = state[k].real[j] * self.poles_r[j]
+                        - state[k].imag[j] * self.poles_i[j]
+                        + input[k][i] * self.coeffs_r[j];
+                    let i = state[k].real[j] * self.poles_i[j]
+                        + state[k].imag[j] * self.poles_r[j]
+                        + input[k][i] * self.coeffs_i[j];
                     ra[k] += r;
                     ia[k] += i;
                     state[k].real[j] = r;
                     state[k].imag[j] = i;
-                };
+                }
             }
             for k in 0..N {
                 real[k][i] = ra[k];

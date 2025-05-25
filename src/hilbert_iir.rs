@@ -67,7 +67,7 @@ pub struct State {
 impl Filter {
     // Initialize a filter with the given sample rate and passband gain.
     // Recommended settings: `Filter::new(48000.0, 2.0)`
-    pub fn init(sample_rate: f32, passband_gain: f32) -> Filter {
+    pub fn new(sample_rate: f32, passband_gain: f32) -> Filter {
         let freq_factor = f32::min(0.46, 20000.0 / sample_rate);
         let mut result = Filter {
             coeffs_r: [0.0; ORDER],

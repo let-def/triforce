@@ -165,7 +165,7 @@ impl Triforce {
             ),
             covar: Matrix3::zeros(),
             weights: Vector3::zeros(),
-            analytic_filter: hilbert_iir::Filter::init(sample_rate, 2.0),
+            analytic_filter: hilbert_iir::Filter::new(sample_rate, 2.0),
             analytic_state: [hilbert_iir::State::INITIAL; 3],
             input0: Vec::new(),
             input1: Vec::new(),
